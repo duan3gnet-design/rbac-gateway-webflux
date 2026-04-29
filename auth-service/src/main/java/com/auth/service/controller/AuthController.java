@@ -2,6 +2,7 @@ package com.auth.service.controller;
 
 import com.auth.service.dto.*;
 import com.auth.service.service.*;
+import io.jsonwebtoken.Claims;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -13,6 +14,8 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -47,26 +50,21 @@ public class AuthController {
     @GetMapping("/validate")
     public ResponseEntity<ClaimsResponse> validate(
             @RequestHeader("Authorization") String authHeader) {
+        String token = authHeader.replace("Bearer ", "");
+        if (!jwtService.isValid(token)) {
+            return ResponseEntity.status(401).build();
+        }
+
+        Claims claims = jwtService.extractClaims(token);
+        List<String> roles = claims.get("roles", List.class);
+
+        Set<String> permissions = permissionService.getPermissions(roles);
+
         return ResponseEntity.ok(new ClaimsResponse(
-                "Performance test",
-                new ArrayList<>(),
-                new HashSet<>()
+                claims.getSubject(),
+                roles,
+                permissions
         ));
-//        String token = authHeader.replace("Bearer ", "");
-//        if (!jwtService.isValid(token)) {
-//            return ResponseEntity.status(401).build();
-//        }
-//
-//        Claims claims = jwtService.extractClaims(token);
-//        List<String> roles = claims.get("roles", List.class);
-//
-//        Set<String> permissions = permissionService.getPermissions(roles);
-//
-//        return ResponseEntity.ok(new ClaimsResponse(
-//                claims.getSubject(),
-//                roles,
-//                permissions
-//        ));
     }
 
     @PostMapping("/refresh")

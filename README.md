@@ -655,21 +655,31 @@ k6 run --out json=k6/results.json k6/script.js
 
 ---
 
-### Kết quả đo được
+### Kết quả đo được (khi service đã chạy ổn định)
 
-> Môi trường: Docker Compose trên Windows 11 / WSL2, mỗi service giới hạn **1 CPU + 512 MB RAM**, api gateway giới hạn **4 CPU + 3GB RAM**.
+> Môi trường: Docker Compose trên Windows 11 / WSL2, mỗi service giới hạn **2 CPU + 1 GB RAM**, api gateway giới hạn **4 CPU + 3 GB RAM**.
 
-#### Trực tiếp vs qua Gateway
+#### Trực tiếp vs qua Gateway tải cao (500 VUs, 200K Requests)
 
-| Metric | Direct `:8081` | Via Gateway `:8080` | Overhead |
-|---|----------------|---------------------|----------|
-| Throughput | **3867 req/s** | **2981 req/s**     | ~23%     |
-| p50 latency | 3 ms          | 5 ms              | +2 ms    |
-| p95 latency | 17 ms         | 15 ms             | -2 ms    |
-| p99 latency | 66 ms         | 32 ms             | -34 ms   |
-| Error rate | 0%             | 0%                  | —        |
+| Metric      | Direct `:8081, :8082` | Via Gateway `:8080` | Overhead |
+|-------------|-----------------------|---------------------|----------|
+| Throughput  | **2823 req/s**        | **2790 req/s**      | ~0.1%    |
+| p50 latency | 50 ms                 | 177 ms              | +127 ms  |
+| p95 latency | 683 ms                | 253 ms              | -430 ms  |
+| p99 latency | 1087 ms               | 308 ms              | -779 ms  |
+| Error rate  | 0%                    | 0%                  | —        |
 
-> Gateway overhead ~2–3 ms/request: JWT validation + Redis rate limit (Lua) + route cache lookup + header mutation + Circuit Breaker state check.
+#### Trực tiếp vs qua Gateway tải thấp (500 VUs, 1000 Requests)
+
+| Metric      | Direct `:8081, :8082` | Via Gateway `:8080` | Overhead |
+|-------------|-----------------------|---------------------|----------|
+| Throughput  | **938 req/s**         | **931 req/s**       | ~0.1%    |
+| p50 latency | 4 ms                  | 5 ms                | +1 ms    |
+| p95 latency | 16 ms                 | 9 ms                | -7 ms    |
+| p99 latency | 38 ms                 | 11 ms               | -27 ms   |
+| Error rate  | 0%                    | 0%                  | —        |
+
+> Gateway overhead ~1–2 ms/request: JWT validation + Redis rate limit (Lua) + route cache lookup + header mutation + Circuit Breaker state check.
 
 ### Các vấn đề đã phát hiện và xử lý
 

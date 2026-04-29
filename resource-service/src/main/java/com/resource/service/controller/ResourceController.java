@@ -31,8 +31,7 @@ public class ResourceController {
 
     @GetMapping("/products")
     public ResponseEntity<List<ProductResponse>> getProducts() {
-        return ResponseEntity.ok(new ArrayList<>());
-//        return ResponseEntity.ok(productService.findAll());
+        return ResponseEntity.ok(productService.findAll());
     }
 
     @GetMapping("/products/{id}")

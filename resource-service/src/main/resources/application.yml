@@ -11,6 +11,12 @@ spring:
     password: ${DB_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
 
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+
   jpa:
     hibernate:
       ddl-auto: validate
@@ -22,6 +28,16 @@ spring:
 
   flyway:
     enabled: false   # Migration chạy từ module riêng
+
+# ==================== ACTUATOR ====================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: always
 
 app:
   auth-service:
