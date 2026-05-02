@@ -32,8 +32,6 @@ public class GatewaySecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-
-        // Cho phép gateway-ui (Vite dev server) gọi API
         config.setAllowedOrigins(List.of(
                 "http://localhost:3000",
                 "http://localhost:5173"

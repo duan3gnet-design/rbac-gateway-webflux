@@ -31,6 +31,11 @@ import java.util.Map;
  *
  * <p>Claims được đọc từ exchange attribute {@code jwt.claims} do JwtAuthenticationFilter
  * đặt vào — tránh parse JWT lần 2 trên mỗi request.</p>
+ *
+ * <p><b>Auth-rejected guard:</b> Nếu JwtAuthenticationFilter đã đặt attribute
+ * {@code gateway.auth.rejected = true} (request bị 401/403), filter này skip ngay.
+ * Không dùng {@code isCommitted()} vì trong WebFlux, {@code setComplete()} chỉ commit
+ * khi Mono được subscribed — tại thời điểm filter tiếp theo chạy, committed vẫn false.</p>
  */
 @Slf4j
 @Component
@@ -42,7 +47,6 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
     private final RateLimitConfigService      rateLimitConfigService;
     private final ObjectMapper                objectMapper;
 
-    // Dùng chung 1 instance — thread-safe
     private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
 
     /** Lua script: Token Bucket algorithm — atomic check-and-decrement */
@@ -58,6 +62,14 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        // Guard: JwtAuthenticationFilter đã reject request (401/403) — skip rate limiting.
+        // Dùng exchange attribute thay vì isCommitted() vì setComplete() trong WebFlux
+        // là lazy — chỉ commit khi Mono được subscribed, nên isCommitted() vẫn false
+        // tại thời điểm filter này chạy trong cùng reactive pipeline.
+        if (Boolean.TRUE.equals(exchange.getAttribute(JwtAuthenticationFilter.ATTR_AUTH_REJECTED))) {
+            return Mono.empty();
+        }
+
         String path = exchange.getRequest().getPath().value();
 
         if (isExcludedPath(path)) {
@@ -106,9 +118,9 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
                 .next()
                 .cast(List.class)
                 .flatMap(result -> {
-                    List<Long> results       = (List<Long>) result;
-                    boolean    allowed       = !results.isEmpty() && results.get(0) == 1L;
-                    long       tokensLeft    = results.size() > 1 ? results.get(1) : 0L;
+                    List<Long> results    = (List<Long>) result;
+                    boolean    allowed    = !results.isEmpty() && results.get(0) == 1L;
+                    long       tokensLeft = results.size() > 1 ? results.get(1) : 0L;
 
                     exchange.getResponse().getHeaders().add("X-RateLimit-Limit",          String.valueOf(burstCapacity));
                     exchange.getResponse().getHeaders().add("X-RateLimit-Remaining",      String.valueOf(tokensLeft));

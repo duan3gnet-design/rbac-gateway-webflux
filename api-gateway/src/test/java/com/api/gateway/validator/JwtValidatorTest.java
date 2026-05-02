@@ -28,6 +28,7 @@ class JwtValidatorTest {
     void setUp() {
         jwtValidator = new JwtValidator();
         ReflectionTestUtils.setField(jwtValidator, "secret", SECRET);
+        jwtValidator.init();
     }
 
     // ─── Helper ──────────────────────────────────────────────────────────────

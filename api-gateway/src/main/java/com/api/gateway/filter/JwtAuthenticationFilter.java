@@ -21,10 +21,15 @@ import java.util.List;
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
 
+    /**
+     * Attribute key được đặt vào exchange khi request bị reject (401/403).
+     * RateLimitFilter đọc key này để skip xử lý — tránh overwrite response đã set.
+     */
+    public static final String ATTR_AUTH_REJECTED = "gateway.auth.rejected";
+
     private final JwtValidator jwtValidator;
     private final RbacPermissionChecker rbacChecker;
 
-    // Dùng chung 1 instance AntPathMatcher — thread-safe, tránh allocate mỗi request
     private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
 
     private static final List<String> PUBLIC_PATHS = List.of(
@@ -67,8 +72,6 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
                             .header("X-User-Name", claims.username())
                             .header("X-User-Roles", String.join(",", claims.roles()))
                             .header("X-User-Permissions", String.join(",", claims.permissions()))
-                            // Đính kèm token đã validated vào attribute để RateLimitFilter tái dụng,
-                            // tránh parse JWT lần thứ 2
                             .build();
 
                     exchange.getAttributes().put("jwt.claims", claims);
@@ -87,11 +90,13 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
     }
 
     private Mono<Void> unauthorized(ServerWebExchange exchange) {
+        exchange.getAttributes().put(ATTR_AUTH_REJECTED, true);
         exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
         return exchange.getResponse().setComplete();
     }
 
     private Mono<Void> forbidden(ServerWebExchange exchange) {
+        exchange.getAttributes().put(ATTR_AUTH_REJECTED, true);
         exchange.getResponse().setStatusCode(HttpStatus.FORBIDDEN);
         return exchange.getResponse().setComplete();
     }

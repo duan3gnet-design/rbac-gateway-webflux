@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import javax.crypto.SecretKey;
 import java.util.HashSet;
@@ -24,8 +25,6 @@ public class JwtValidator {
     @Value("${jwt.secret}")
     private String secret;
 
-    // Build parser 1 lần khi startup, tái dụng cho mọi request
-    // → tránh decode Base64 + allocate SecretKey mỗi lần validate
     private JwtParser jwtParser;
 
     @PostConstruct
@@ -53,6 +52,6 @@ public class JwtValidator {
                     roles,
                     permissions
             );
-        });
+        }).subscribeOn(Schedulers.boundedElastic());
     }
 }

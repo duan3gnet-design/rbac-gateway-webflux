@@ -7,6 +7,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.NonNull;
 import org.springframework.cloud.gateway.event.RefreshRoutesEvent;
 import org.springframework.cloud.gateway.filter.FilterDefinition;
 import org.springframework.cloud.gateway.handler.predicate.PredicateDefinition;
@@ -29,6 +30,10 @@ import java.util.concurrent.atomic.AtomicReference;
  * delegate về DB thực sự thay vì ném exception để tránh làm gián đoạn request.</p>
  *
  * <p><b>Cache:</b> Invalidate khi nhận {@link RefreshRoutesEvent} từ AdminRouteService.</p>
+ *
+ * <p><b>invalidateCache():</b> Public method cho phép test (và @BeforeEach) force
+ * invalidate cache sau khi reset DB trực tiếp — đảm bảo Gateway luôn load
+ * routes fresh từ DB thay vì dùng cache stale.</p>
  */
 @Slf4j
 @Component
@@ -72,12 +77,11 @@ public class DatabaseRouteDefinitionRepository implements RouteDefinitionReposit
         return route.flatMap(def ->
                 routeRepository.existsById(def.getId())
                         .flatMap(exists -> {
-                            GatewayRouteEntity entity = toEntity(def);
                             if (exists) {
-                                // Route đã có trong DB — bỏ qua, không override config thủ công
                                 log.debug("Route [{}] already exists in DB — skipping save", def.getId());
                                 return Mono.empty();
                             }
+                            GatewayRouteEntity entity = toEntity(def);
                             return routeRepository.save(entity)
                                     .doOnSuccess(e -> log.debug("Route [{}] saved to DB via gateway lifecycle", e.id()))
                                     .then();
@@ -90,23 +94,36 @@ public class DatabaseRouteDefinitionRepository implements RouteDefinitionReposit
      * AdminRouteService.deleteRoute() cũng delete trực tiếp qua repo — method này là fallback.
      */
     @Override
-    public Mono<Void> delete(Mono<String> routeId) {
+    public @NonNull Mono<Void> delete(Mono<String> routeId) {
         return routeId.flatMap(id ->
                 routeRepository.findById(id)
+                        .switchIfEmpty(Mono.error(new IllegalArgumentException(
+                                "Route not found: " + id)))
                         .flatMap(routeRepository::delete)
                         .doOnSuccess(v -> log.debug("Route [{}] deleted via gateway lifecycle", id))
         );
     }
 
-    // ─── Cache invalidation ──────────────────────────────────────────────────
+    // ─── Cache management ────────────────────────────────────────────────────
 
     @EventListener(RefreshRoutesEvent.class)
     public void onRefreshRoutes(RefreshRoutesEvent event) {
-        // Chỉ invalidate khi event đến từ AdminRouteService, không phải từ chính gateway lifecycle
         if (!(event.getSource() instanceof DatabaseRouteDefinitionRepository)) {
-            routeCache.set(null);
-            log.info("Route cache invalidated — will reload from database on next request");
+            invalidateCache();
         }
+    }
+
+    /**
+     * Force invalidate route cache — load lại từ DB trong request tiếp theo.
+     *
+     * <p>Được gọi bởi {@code @BeforeEach} trong integration test sau khi reset DB
+     * trực tiếp bằng SQL (không đi qua AdminRouteService nên không có
+     * RefreshRoutesEvent). Nếu không gọi method này, Gateway sẽ tiếp tục dùng
+     * cache stale và trả 404 cho routes đã bị xóa hoặc không thấy routes mới.</p>
+     */
+    public void invalidateCache() {
+        routeCache.set(null);
+        log.info("Route cache invalidated — will reload from database on next request");
     }
 
     // ─── Private helpers ─────────────────────────────────────────────────────
@@ -134,7 +151,7 @@ public class DatabaseRouteDefinitionRepository implements RouteDefinitionReposit
         String filtersJson    = serializeSilently(def.getFilters());
         return new GatewayRouteEntity(
                 def.getId(),
-                def.getUri().toString(),
+                def.getUri() != null ? def.getUri().toString() : null,
                 predicatesJson,
                 filtersJson,
                 def.getOrder(),
@@ -149,9 +166,22 @@ public class DatabaseRouteDefinitionRepository implements RouteDefinitionReposit
         var node = objectMapper.readTree(json);
         if (node.isArray() && !node.isEmpty() && node.get(0).isTextual()) {
             return objectMapper.convertValue(node, new TypeReference<List<String>>() {})
-                    .stream().map(PredicateDefinition::new).toList();
+                    .stream()
+                    .map(s -> new PredicateDefinition(toNamedShortcut(s)))
+                    .toList();
         }
         return objectMapper.readValue(json, PREDICATE_TYPE);
+    }
+
+    /**
+     * Chuyển shortcut path string (vd: "/api/**") thành dạng có tên predicate
+     * mà {@link PredicateDefinition} có thể parse được (vd: "Path=/api/**").
+     *
+     * <p>Nếu string đã có dạng "Name=..." (ví dụ "Host=example.com") thì giữ nguyên.</p>
+     */
+    private String toNamedShortcut(String s) {
+        if (s.contains("=")) return s;   // đã có tên, ví dụ "Host=example.com"
+        return "Path=" + s;              // thuần path, ví dụ "/api/**" → "Path=/api/**"
     }
 
     private List<FilterDefinition> parseFilters(String json) throws Exception {

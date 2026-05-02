@@ -1,6 +1,7 @@
 package com.api.gateway.integration;
 
 import com.api.gateway.config.PostgreSQLContainerConfig;
+import com.api.gateway.route.DatabaseRouteDefinitionRepository;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.junit.jupiter.api.AfterAll;
@@ -53,6 +54,9 @@ abstract class AbstractIntegrationTest {
     @Autowired
     private ReactiveStringRedisTemplate redisTemplate;
 
+    @Autowired
+    private DatabaseRouteDefinitionRepository routeDefinitionRepository;
+
     @AfterAll
     static void stopWireMock() {
         // WireMock dùng chung toàn suite, JVM shutdown hook sẽ dọn
@@ -70,6 +74,13 @@ abstract class AbstractIntegrationTest {
                 .blockLast(Duration.ofSeconds(5));
 
         cleanDynamicDbState();
+
+        // Invalidate route cache sau khi reset DB trực tiếp bằng SQL.
+        // cleanDynamicDbState() xóa/reset routes qua SQL — không đi qua AdminRouteService
+        // nên không có RefreshRoutesEvent → cache KHÔNG tự động bị clear.
+        // Nếu bỏ dòng này, Gateway dùng cache stale: routes đã xóa vẫn active,
+        // routes mới được tạo trong test trước không bị dọn → test fail với 404/200 sai.
+        routeDefinitionRepository.invalidateCache();
 
         webClient = WebTestClient
                 .bindToServer()

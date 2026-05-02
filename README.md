@@ -551,110 +551,16 @@ Testcontainers pulls `postgres:16-alpine` and `redis:7-alpine` automatically on 
 
 ### Stack
 
-| Tool | Role |
-|---|---|
-| [k6](https://k6.io/) | Load generator — scripted scenarios, thresholds, checks |
-| Docker Compose | Spin up full stack với `perf` profile |
-
-### Setup
-
-**1. Build và chạy full stack**
-
-```bash
-cp .env.example .env
-docker compose up --build -d
-
-# Đợi tất cả service healthy (~60s)
-docker compose ps
-```
-
-**2. Cài k6**
-
-```bash
-# macOS
-brew install k6
-
-# Windows
-winget install k6
-
-# Hoặc chạy qua Docker, không cần cài local
-docker run --rm -i \
-  --network rbac-gateway_rbac-network \
-  -e BASE_URL=http://api-gateway:8080 \
-  grafana/k6 run - < k6/script.js
-```
-
----
+| Tool                                 | Role                                                    |
+|--------------------------------------|---------------------------------------------------------|
+| [JMeter](https://jmeter.apache.org/) | Load generator — scripted scenarios, thresholds, checks |
+| Docker Compose                       | Spin up full stack với `perf` profile                   |
 
 ### Kịch bản test
 
-Scripts nằm trong `k6/scenarios/`:
-
-**`auth_flow.js` — Smoke + Load test**
-
-```js
-export const options = {
-  scenarios: {
-    smoke: {
-      executor: 'constant-vus',
-      vus: 5, duration: '30s',
-    },
-    load: {
-      executor: 'ramping-vus',
-      stages: [
-        { duration: '30s', target: 50  },  // ramp up
-        { duration: '2m',  target: 200 },  // sustained
-        { duration: '30s', target: 0   },  // ramp down
-      ],
-    },
-  },
-  thresholds: {
-    http_req_duration: ['p(95)<500', 'p(99)<1000'],
-    http_req_failed:   ['rate<0.01'],
-  },
-};
-```
-
-**`rate_limit.js` — Burst test**
-
-```js
-export const options = {
-  scenarios: {
-    burst: {
-      executor: 'constant-arrival-rate',
-      rate: 500,          // 500 req/s
-      timeUnit: '1s',
-      duration: '30s',
-      preAllocatedVUs: 100,
-    },
-  },
-};
-```
-
-**`circuit_breaker.js` — Failure simulation**
-
-Dừng `resource-service` trong lúc test để xác nhận Circuit Breaker mở đúng, fallback hoạt động, và tự phục hồi về HALF_OPEN sau `waitDurationInOpenState`.
+[RBAC Gateway test plan](<performance-test/RBAC%20Gateway.jmx>)
 
 ---
-
-### Chạy test
-
-```bash
-# Chạy tất cả scenario
-k6 run k6/script.js
-
-# Chỉ chạy auth flow
-k6 run k6/scenarios/auth_flow.js
-
-# Chạy với BASE_URL tùy chỉnh
-k6 run -e BASE_URL=http://localhost:8080 k6/scenarios/auth_flow.js
-
-# Xuất JSON để phân tích sau
-k6 run --out json=k6/results.json k6/script.js
-```
-
----
-
 ### Kết quả đo được (khi service đã chạy ổn định)
 
 > Môi trường: Docker Compose trên Windows 11 / WSL2, mỗi service giới hạn **2 CPU + 1 GB RAM**, api gateway giới hạn **4 CPU + 3 GB RAM**.

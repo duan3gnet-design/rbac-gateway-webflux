@@ -62,11 +62,14 @@ public class AdminRouteService {
                         return Mono.error(new ResponseStatusException(
                                 HttpStatus.CONFLICT, "Route already exists: " + req.id()));
                     }
+                    // isNew = true → Spring Data R2DBC dùng INSERT thay vì UPDATE.
+                    // Với String ID do người dùng cung cấp, Spring Data không thể tự
+                    // phân biệt INSERT vs UPDATE nên cần Persistable.isNew() = true.
                     GatewayRouteEntity entity = new GatewayRouteEntity(
                             req.id(), req.uri(),
                             req.predicates(), req.filters(),
                             req.routeOrder(), req.enabled(),
-                            OffsetDateTime.now(), OffsetDateTime.now()
+                            OffsetDateTime.now(), OffsetDateTime.now(), true
                     );
                     return routeRepo.save(entity);
                 })
@@ -78,6 +81,7 @@ public class AdminRouteService {
         return routeRepo.findById(id)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Route not found: " + id)))
                 .flatMap(existing -> {
+                    // isNew = false (default) → UPDATE
                     GatewayRouteEntity updated = new GatewayRouteEntity(
                             existing.id(),
                             req.uri(),
@@ -106,6 +110,7 @@ public class AdminRouteService {
         return routeRepo.findById(id)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Route not found: " + id)))
                 .flatMap(existing -> {
+                    // isNew = false (default) → UPDATE
                     GatewayRouteEntity updated = new GatewayRouteEntity(
                             existing.id(), existing.uri(),
                             existing.predicates(), existing.filters(),
@@ -125,7 +130,6 @@ public class AdminRouteService {
                     if (!exists) {
                         return Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Route not found: " + routeId));
                     }
-                    // Xóa cũ → insert mới (replace strategy)
                     return permissionRepo.deleteByRouteId(routeId)
                             .thenMany(Flux.fromIterable(permissionIds)
                                     .flatMap(pid -> permissionRepo.insert(routeId, pid)))
